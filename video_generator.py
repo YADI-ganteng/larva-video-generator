@@ -1,279 +1,304 @@
 """
-🎮 Larva Character Video Generator - 360p
-Karakter bergerak frame by frame sesuai cerita
+🎮 Larva Video Generator - Complete
+Watermark Atas + YADSTORES + Animasi Lambat
 """
 
 import os
 import re
 import random
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from gtts import gTTS
+from io import BytesIO
+import requests
 
 try:
     from moviepy import AudioFileClip, ImageSequenceClip
 except:
     from moviepy.editor import AudioFileClip, ImageSequenceClip
 
-# ============ KONFIGURASI ============
-WIDTH = 360   # 360p
-HEIGHT = 640  # 9:16 ratio
+WIDTH = 360
+HEIGHT = 640
 FPS = 30
+PART_DURATION = 120
+CHAR_ANIM_FPS = 8
 
-class CharacterAnimationParser:
-    """Parse file karakter menjadi animasi"""
+ASSETS_FOLDER = "larva_assets"
 
-    def __init__(self, assets_folder="larva_assets"):
-        self.assets_folder = assets_folder
+class CharacterParser:
+    def __init__(self):
         self.characters = {}
         self.parse()
-
+    
     def parse(self):
-        """Parse semua file PNG"""
-        for root, dirs, files in os.walk(self.assets_folder):
+        for root, dirs, files in os.walk(ASSETS_FOLDER):
             for file in files:
                 if file.endswith('.png'):
                     parts = file.replace('.png', '').split('_')
-
                     if len(parts) >= 3:
-                        # Deteksi karakter (1 atau 2 kata)
-                        if len(parts) >= 4 and parts[1] in ['knight', 'warrior', 'hulk', 'zoro', 'viking', 'termi', 'spider', 'ninja', 'kungfu', 'iron']:
-                            char_name = '_'.join(parts[:2])
-                            anim_name = parts[2]
+                        if len(parts) >= 4 and parts[1] in ['knight', 'warrior', 'ninja', 'zoro', 'spider', 'viking', 'terminator', 'iron']:
+                            char = '_'.join(parts[:2])
+                            anim = parts[2]
                         else:
-                            char_name = parts[0]
-                            anim_name = parts[1]
-
-                        if char_name not in self.characters:
-                            self.characters[char_name] = {}
-
-                        if anim_name not in self.characters[char_name]:
-                            self.characters[char_name][anim_name] = []
-
-                        self.characters[char_name][anim_name].append(os.path.join(root, file))
-
-        # Sort
+                            char = parts[0]
+                            anim = parts[1]
+                        
+                        if char not in self.characters:
+                            self.characters[char] = {}
+                        if anim not in self.characters[char]:
+                            self.characters[char][anim] = []
+                        self.characters[char][anim].append(os.path.join(root, file))
+        
         for char in self.characters:
             for anim in self.characters[char]:
                 self.characters[char][anim].sort()
-
-    def get_animation_frames(self, char_name, anim_name):
-        """Dapatkan frames untuk animasi"""
-        if char_name in self.characters:
-            if anim_name in self.characters[char_name]:
-                return self.characters[char_name][anim_name]
-
-        # Fallback: cari animasi apapun
-        if char_name in self.characters:
-            for anim in self.characters[char_name]:
-                return self.characters[char_name][anim]
-
-        # Fallback: cari karakter apapun
-        for char in self.characters:
-            for anim in self.characters[char]:
-                return self.characters[char][anim]
-
+        
+        print(f"✅ {len(self.characters)} karakter")
+    
+    def get_frames(self, char, anim):
+        if char in self.characters and anim in self.characters[char]:
+            return self.characters[char][anim]
+        for c in self.characters:
+            for a in self.characters[c]:
+                return self.characters[c][a]
         return []
 
-class StoryActionDetector:
-    """Deteksi aksi dari teks cerita"""
-
-    ACTION_MAP = {
-        'walk': ['berjalan', 'jalan', 'melangkah', 'pergi', 'datang'],
-        'run': ['berlari', 'lari', 'cepat', 'buru', 'kejar'],
-        'stand': ['berdiri', 'diam', 'berhenti', 'menunggu'],
-        'attack': ['menyerang', 'serang', 'pukul', 'tendang', 'lawan', 'hajar'],
-        'skill': ['skill', 'jurus', 'sihir', 'magic', 'power', 'spesial'],
-        'damage': ['terluka', 'sakit', 'kena', 'terkena', 'jatuh'],
-        'death': ['mati', 'tewas', 'kalah', 'hancur', 'tumbang'],
-        'idle': ['diam', 'santai', 'istirahat', 'tidur'],
-    }
-
-    CHAR_MAP = {
-        'black_knight': ['black knight', 'knight', 'ksatria hitam'],
-        'rainbow_warrior': ['rainbow', 'pelangi', 'warrior'],
-        'red': ['red', 'merah'],
-        'yellow': ['yellow', 'kuning'],
-    }
-
-    def detect_action(self, text):
-        text_lower = text.lower()
-        for action, keywords in self.ACTION_MAP.items():
-            for kw in keywords:
-                if kw in text_lower:
-                    return action
-        return 'stand'
-
-    def detect_character(self, text):
-        text_lower = text.lower()
-        for char, keywords in self.CHAR_MAP.items():
-            for kw in keywords:
-                if kw in text_lower:
-                    return char
-        return None
-
-class AnimatedLarvaGenerator:
-    """Generator video dengan karakter bergerak"""
-
-    def __init__(self, assets_folder="larva_assets"):
-        self.parser = CharacterAnimationParser(assets_folder)
-        self.detector = StoryActionDetector()
-        self.watermark_text = "YT: CeritaMistery | Penulis: Yad | Editor: Yad"
-
-        print(f"✅ {len(self.parser.characters)} karakter loaded")
-
-    def create_background(self, frame_num=0):
-        """Background 360p"""
+class BackgroundDownloader:
+    def __init__(self):
+        self.cache = {}
+    
+    def get_bg(self, query):
+        if query in self.cache:
+            return self.cache[query].copy()
+        img = self.download(query)
+        self.cache[query] = img
+        return img.copy()
+    
+    def download(self, query):
+        for url in [
+            f"https://picsum.photos/{WIDTH}/{HEIGHT}?random={random.randint(1,1000)}",
+            f"https://source.unsplash.com/{WIDTH}x{HEIGHT}/?{query.replace(' ', '-')}",
+        ]:
+            try:
+                response = requests.get(url, timeout=10, allow_redirects=True)
+                if response.status_code == 200 and len(response.content) > 1000:
+                    img = Image.open(BytesIO(response.content))
+                    img = img.convert("RGB")
+                    img = img.resize((WIDTH, HEIGHT), Image.LANCZOS)
+                    return img
+            except:
+                continue
+        
         img = Image.new("RGB", (WIDTH, HEIGHT), (15, 15, 35))
         draw = ImageDraw.Draw(img)
-
-        # Gradient
         for y in range(HEIGHT):
-            factor = y / HEIGHT
-            r = int(15 * (1 - factor * 0.5))
-            g = int(15 * (1 - factor * 0.5))
-            b = int(35 * (1 - factor * 0.5))
-            draw.line([(0, y), (WIDTH, y)], fill=(r, g, b))
-
-        # Ground
-        draw.rectangle([(0, HEIGHT-80), (WIDTH, HEIGHT)], fill=(40, 35, 25))
-
+            f = y / HEIGHT
+            draw.line([(0, y), (WIDTH, y)], fill=(int(15*(1-f*0.5)), int(15*(1-f*0.5)), int(35*(1-f*0.5))))
         return img
 
-    def add_character_frame(self, background, char_name, anim_name, frame_num=0):
-        """Tambah karakter dengan animasi"""
-        frames = self.parser.get_animation_frames(char_name, anim_name)
+class StoryDetector:
+    ACTIONS = {
+        'walk': ['berjalan', 'jalan', 'melangkah'],
+        'run': ['berlari', 'lari', 'cepat'],
+        'stand': ['berdiri', 'diam', 'berhenti'],
+        'attack': ['menyerang', 'serang', 'pukul'],
+        'skill': ['skill', 'jurus', 'sihir'],
+        'damage': ['terluka', 'kena'],
+        'death': ['mati', 'tewas', 'hancur'],
+        'stun': ['stun', 'pingsan'],
+    }
+    
+    CHARS = {
+        'black_knight': ['black knight', 'knight'],
+        'vampire': ['vampire'],
+        'skeleton': ['skeleton'],
+        'ghost': ['ghost', 'hantu'],
+        'pumpkin': ['pumpkin', 'labu'],
+        'mira': ['mira'],
+        'red_ninja': ['ninja'],
+        'red_zoro': ['zoro'],
+        'red_spider': ['spider'],
+        'red_viking': ['viking'],
+        'ent': ['ent', 'pohon'],
+    }
+    
+    def action(self, text):
+        text = text.lower()
+        for a, kws in self.ACTIONS.items():
+            for kw in kws:
+                if kw in text:
+                    return a
+        return 'stand'
+    
+    def char(self, text):
+        text = text.lower()
+        for c, kws in self.CHARS.items():
+            for kw in kws:
+                if kw in text:
+                    return c
+        return None
+    
+    def bg(self, text):
+        text = text.lower()
+        if 'hutan' in text: return 'dark forest night'
+        if 'kuil' in text: return 'ancient temple'
+        if 'desa' in text: return 'village night'
+        return 'dark scary night'
 
-        if not frames:
-            return background
-
-        # Loop animasi
-        frame_idx = frame_num % len(frames)
-        sprite_path = frames[frame_idx]
-
-        try:
-            sprite = Image.open(sprite_path)
-            sprite = sprite.convert("RGBA")
-
-            # Resize untuk 360p
-            max_w = int(WIDTH * 0.6)
-            max_h = int(HEIGHT * 0.4)
-            ratio = min(max_w / sprite.width, max_h / sprite.height)
-            new_w = int(sprite.width * ratio)
-            new_h = int(sprite.height * ratio)
-            sprite = sprite.resize((new_w, new_h), Image.LANCZOS)
-
-            # Posisi tengah bawah
-            x = (WIDTH - new_w) // 2
-            y = HEIGHT - new_h - 60
-
-            background.paste(sprite, (x, y), sprite)
-        except:
-            pass
-
-        return background
-
-    def add_watermark(self, image):
-        """Watermark kecil"""
+class VideoGenerator:
+    def __init__(self):
+        self.parser = CharacterParser()
+        self.bg_dl = BackgroundDownloader()
+        self.detector = StoryDetector()
+    
+    def add_watermark_top(self, image):
+        """Watermark KECIL di ATAS - Keren & Terbaca"""
         draw = ImageDraw.Draw(image)
+        
+        # Font kecil
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
+            font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11)
         except:
-            font = ImageFont.load_default()
-
-        draw.rounded_rectangle([10, HEIGHT-50, WIDTH-10, HEIGHT-5], radius=8, fill=(0,0,0,120))
-
-        text = "YT: CeritaMistery | Penulis: Yad"
-        bbox = draw.textbbox((0,0), text, font=font)
-        x = (WIDTH - (bbox[2]-bbox[0])) // 2
-        draw.text((x+1, HEIGHT-40), text, fill="black", font=font)
-        draw.text((x, HEIGHT-42), text, fill=(255,255,255,180), font=font)
-
+            font_small = ImageFont.load_default()
+            font_bold = font_small
+        
+        # Background semi-transparent kecil di atas
+        draw.rounded_rectangle([8, 8, WIDTH-8, 55], radius=8, fill=(0, 0, 0, 100))
+        
+        # Garis aksen
+        draw.line([(15, 30), (WIDTH-15, 30)], fill=(255, 200, 50, 100), width=1)
+        
+        # Text watermark
+        text1 = "YT: CeritaMistery"
+        bbox1 = draw.textbbox((0, 0), text1, font=font_bold)
+        x1 = (WIDTH - (bbox1[2]-bbox1[0])) // 2
+        draw.text((x1+1, 12), text1, fill="black", font=font_bold)
+        draw.text((x1, 11), text1, fill=(255, 255, 255, 200), font=font_bold)
+        
+        # Text YADSTORES
+        text2 = "Top Up: yadstores.web.app"
+        bbox2 = draw.textbbox((0, 0), text2, font=font_small)
+        x2 = (WIDTH - (bbox2[2]-bbox2[0])) // 2
+        draw.text((x2+1, 33), text2, fill="black", font=font_small)
+        draw.text((x2, 32), text2, fill=(255, 200, 50, 200), font=font_small)
+        
         return image
-
-    def generate_video(self, cerita, duration=None):
-        """Generate video dari cerita"""
-
-        # TTS
-        tts = gTTS(text=cerita, lang="id", slow=False)
-        tts.save("temp_audio.mp3")
-        audio = AudioFileClip("temp_audio.mp3")
-
-        if not duration:
-            duration = audio.duration
-
-        # Split cerita menjadi kalimat
+    
+    def split_parts(self, cerita):
+        words = cerita.split()
+        wpp = int(PART_DURATION * 2.5)
+        if len(words) <= wpp:
+            return [cerita]
+        
         sentences = [s.strip() for s in re.split(r'[.!?]+', cerita) if s.strip()]
-
-        # Buat scene untuk setiap kalimat
+        parts = []
+        current = []
+        cw = 0
+        for s in sentences:
+            sw = len(s.split())
+            if cw + sw > wpp:
+                if current:
+                    parts.append('. '.join(current) + '.')
+                current = [s]
+                cw = sw
+            else:
+                current.append(s)
+                cw += sw
+        if current:
+            parts.append('. '.join(current) + '.')
+        return parts
+    
+    def generate_part(self, cerita_part, part_num):
+        print(f"\n🎬 Part {part_num}")
+        
+        tts = gTTS(text=cerita_part, lang="id", slow=False)
+        audio_file = f"temp_part{part_num}.mp3"
+        tts.save(audio_file)
+        audio = AudioFileClip(audio_file)
+        duration = audio.duration
+        
+        sentences = [s.strip() for s in re.split(r'[.!?]+', cerita_part) if s.strip()]
+        
         scenes = []
-        for sentence in sentences:
-            action = self.detector.detect_action(sentence)
-            character = self.detector.detect_character(sentence)
-
+        for s in sentences:
             scenes.append({
-                'text': sentence,
-                'action': action,
-                'character': character,
-                'duration': max(len(sentence.split()) / 2.5, 1.0)
+                'text': s,
+                'action': self.detector.action(s),
+                'char': self.detector.char(s),
+                'bg': self.detector.bg(s),
+                'duration': max(len(s.split()) / 2.5, 2.0)
             })
-
-        print(f"📝 {len(scenes)} scenes:")
-        for i, scene in enumerate(scenes):
-            print(f"   Scene {i+1}: [{scene['character'] or 'default'}] {scene['action']}")
-
-        # Generate frames
+        
+        for scene in scenes:
+            scene['bg_img'] = self.bg_dl.get_bg(scene['bg'])
+        
         total_frames = int(duration * FPS)
-        frames_per_scene = total_frames // len(scenes) if scenes else total_frames
-
-        print(f"🎨 {total_frames} frames...")
-
+        fps_scene = total_frames // len(scenes) if scenes else total_frames
+        
         frames = []
         for frame_num in range(total_frames):
-            scene_idx = min(frame_num // frames_per_scene, len(scenes) - 1)
+            scene_idx = min(frame_num // fps_scene, len(scenes) - 1)
             scene = scenes[scene_idx]
-
-            # Background
-            bg = self.create_background(frame_num)
-
-            # Tambah karakter
-            char_name = scene['character']
-            action = scene['action']
-
-            if char_name:
-                bg = self.add_character_frame(bg, char_name, action, frame_num)
-            else:
-                # Coba semua karakter
-                for char in self.parser.characters:
-                    bg = self.add_character_frame(bg, char, action, frame_num)
-                    break
-
-            # Watermark
-            bg = self.add_watermark(bg)
-
+            
+            bg = scene['bg_img'].copy()
+            
+            if scene['char']:
+                char_frames = self.parser.get_frames(scene['char'], scene['action'])
+                if char_frames:
+                    char_idx = (frame_num // 4) % len(char_frames)
+                    sprite_path = char_frames[char_idx]
+                    try:
+                        sprite = Image.open(sprite_path).convert("RGBA")
+                        max_w = int(WIDTH * 0.5)
+                        max_h = int(HEIGHT * 0.35)
+                        ratio = min(max_w / sprite.width, max_h / sprite.height)
+                        nw = int(sprite.width * ratio)
+                        nh = int(sprite.height * ratio)
+                        sprite = sprite.resize((nw, nh), Image.LANCZOS)
+                        x = (WIDTH - nw) // 2
+                        y = HEIGHT - nh - 50
+                        bg.paste(sprite, (x, y), sprite)
+                    except:
+                        pass
+            
+            # WATERMARK ATAS
+            bg = self.add_watermark_top(bg)
+            
             frames.append(np.array(bg))
-
+            
             if frame_num % 100 == 0:
                 print(f"  Frame {frame_num}/{total_frames}")
-
-        # Buat video
-        print("📹 Creating video...")
+        
         video = ImageSequenceClip(frames, fps=FPS)
         video = video.with_audio(audio)
-
+        
         os.makedirs("output", exist_ok=True)
-        output = "output/larva_animated.mp4"
+        output = f"output/part_{part_num}.mp4"
         video.write_videofile(output, fps=FPS, codec="libx264", audio_codec="aac", bitrate="800k", preset="ultrafast")
-
         video.close()
         audio.close()
-
+        
+        print(f"✅ Part {part_num} done!")
         return output
+    
+    def generate_all(self, cerita):
+        parts = self.split_parts(cerita)
+        print(f"\n📝 {len(parts)} parts")
+        results = []
+        for i, part in enumerate(parts):
+            results.append(self.generate_part(part, i+1))
+        return results
 
 if __name__ == "__main__":
-    generator = AnimatedLarvaGenerator()
-
-    cerita = "Black Knight berjalan di hutan. Dia berhenti dan berdiri. Tiba-tiba dia berlari menyerang musuh."
-
-    result = generator.generate_video(cerita)
-    print(f"\n✅ Video: {result}")
+    gen = VideoGenerator()
+    
+    cerita = None
+    if os.path.exists("cerita/cerita.txt"):
+        with open("cerita/cerita.txt", "r") as f:
+            cerita = f.read()
+    if not cerita:
+        cerita = "Black Knight berjalan di hutan gelap. Vampire muncul dan menyerang."
+    
+    results = gen.generate_all(cerita)
+    print(f"\n✅ {len(results)} video!")
