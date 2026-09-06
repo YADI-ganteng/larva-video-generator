@@ -1,304 +1,428 @@
 """
-🎮 Larva Video Generator - Complete
-Watermark Atas + YADSTORES + Animasi Lambat
+🎮 LARVA ANIMATION GENERATOR - REAL SPRITE
+Menggunakan animasi asli dari game
 """
 
 import os
 import re
 import random
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 from gtts import gTTS
-from io import BytesIO
-import requests
 
 try:
-    from moviepy import AudioFileClip, ImageSequenceClip
+    from moviepy.editor import ImageSequenceClip, AudioFileClip
 except:
-    from moviepy.editor import AudioFileClip, ImageSequenceClip
+    from moviepy import ImageSequenceClip, AudioFileClip
 
 WIDTH = 360
 HEIGHT = 640
 FPS = 30
 PART_DURATION = 120
-CHAR_ANIM_FPS = 8
+ASSETS = "larva_assets"
 
-ASSETS_FOLDER = "larva_assets"
-
-class CharacterParser:
+class LarvaParser:
     def __init__(self):
-        self.characters = {}
+        self.chars = {}
         self.parse()
     
     def parse(self):
-        for root, dirs, files in os.walk(ASSETS_FOLDER):
-            for file in files:
-                if file.endswith('.png'):
-                    parts = file.replace('.png', '').split('_')
+        for root, dirs, files in os.walk(ASSETS):
+            for f in files:
+                if f.endswith('.png'):
+                    parts = f.replace('.png','').split('_')
                     if len(parts) >= 3:
-                        if len(parts) >= 4 and parts[1] in ['knight', 'warrior', 'ninja', 'zoro', 'spider', 'viking', 'terminator', 'iron']:
+                        if len(parts) >= 4 and parts[1] in ['knight','warrior','ninja','zoro','spider','viking','terminator','iron']:
                             char = '_'.join(parts[:2])
                             anim = parts[2]
                         else:
                             char = parts[0]
                             anim = parts[1]
                         
-                        if char not in self.characters:
-                            self.characters[char] = {}
-                        if anim not in self.characters[char]:
-                            self.characters[char][anim] = []
-                        self.characters[char][anim].append(os.path.join(root, file))
+                        if char not in self.chars:
+                            self.chars[char] = {}
+                        if anim not in self.chars[char]:
+                            self.chars[char][anim] = []
+                        self.chars[char][anim].append(os.path.join(root, f))
         
-        for char in self.characters:
-            for anim in self.characters[char]:
-                self.characters[char][anim].sort()
+        for c in self.chars:
+            for a in self.chars[c]:
+                self.chars[c][a].sort()
         
-        print(f"✅ {len(self.characters)} karakter")
+        print(f"✅ {len(self.chars)} karakter")
     
     def get_frames(self, char, anim):
-        if char in self.characters and anim in self.characters[char]:
-            return self.characters[char][anim]
-        for c in self.characters:
-            for a in self.characters[c]:
-                return self.characters[c][a]
+        if char in self.chars and anim in self.chars[char]:
+            return self.chars[char][anim]
+        for c in self.chars:
+            for a in self.chars[c]:
+                return self.chars[c][a]
         return []
 
-class BackgroundDownloader:
-    def __init__(self):
-        self.cache = {}
-    
-    def get_bg(self, query):
-        if query in self.cache:
-            return self.cache[query].copy()
-        img = self.download(query)
-        self.cache[query] = img
-        return img.copy()
-    
-    def download(self, query):
-        for url in [
-            f"https://picsum.photos/{WIDTH}/{HEIGHT}?random={random.randint(1,1000)}",
-            f"https://source.unsplash.com/{WIDTH}x{HEIGHT}/?{query.replace(' ', '-')}",
-        ]:
-            try:
-                response = requests.get(url, timeout=10, allow_redirects=True)
-                if response.status_code == 200 and len(response.content) > 1000:
-                    img = Image.open(BytesIO(response.content))
-                    img = img.convert("RGB")
-                    img = img.resize((WIDTH, HEIGHT), Image.LANCZOS)
-                    return img
-            except:
-                continue
-        
-        img = Image.new("RGB", (WIDTH, HEIGHT), (15, 15, 35))
-        draw = ImageDraw.Draw(img)
-        for y in range(HEIGHT):
-            f = y / HEIGHT
-            draw.line([(0, y), (WIDTH, y)], fill=(int(15*(1-f*0.5)), int(15*(1-f*0.5)), int(35*(1-f*0.5))))
-        return img
-
-class StoryDetector:
+class Detector:
     ACTIONS = {
-        'walk': ['berjalan', 'jalan', 'melangkah'],
-        'run': ['berlari', 'lari', 'cepat'],
-        'stand': ['berdiri', 'diam', 'berhenti'],
-        'attack': ['menyerang', 'serang', 'pukul'],
-        'skill': ['skill', 'jurus', 'sihir'],
-        'damage': ['terluka', 'kena'],
-        'death': ['mati', 'tewas', 'hancur'],
-        'stun': ['stun', 'pingsan'],
+        'walk': ['berjalan','jalan'],
+        'run': ['berlari','lari'],
+        'stand': ['berdiri','diam'],
+        'attack': ['menyerang','serang'],
+        'skill01': ['skill01','skill 1'],
+        'skill02': ['skill02','skill 2'],
+        'skill03': ['skill03','skill 3'],
+        'skill04': ['skill04','skill 4'],
+        'damage': ['terluka','kena'],
+        'death': ['mati','tewas','hancur'],
+        'stun': ['stun','pingsan'],
     }
     
     CHARS = {
-        'black_knight': ['black knight', 'knight'],
+        'black_knight': ['black knight','knight'],
         'vampire': ['vampire'],
         'skeleton': ['skeleton'],
-        'ghost': ['ghost', 'hantu'],
-        'pumpkin': ['pumpkin', 'labu'],
+        'ghost': ['ghost','hantu'],
+        'pumpkin': ['pumpkin','labu'],
         'mira': ['mira'],
         'red_ninja': ['ninja'],
         'red_zoro': ['zoro'],
         'red_spider': ['spider'],
         'red_viking': ['viking'],
-        'ent': ['ent', 'pohon'],
+        'ent': ['ent','pohon'],
     }
     
     def action(self, text):
-        text = text.lower()
+        tl = text.lower()
         for a, kws in self.ACTIONS.items():
             for kw in kws:
-                if kw in text:
+                if kw in tl:
                     return a
         return 'stand'
     
     def char(self, text):
-        text = text.lower()
+        tl = text.lower()
         for c, kws in self.CHARS.items():
             for kw in kws:
-                if kw in text:
+                if kw in tl:
                     return c
         return None
-    
-    def bg(self, text):
-        text = text.lower()
-        if 'hutan' in text: return 'dark forest night'
-        if 'kuil' in text: return 'ancient temple'
-        if 'desa' in text: return 'village night'
-        return 'dark scary night'
 
-class VideoGenerator:
+class Generator:
     def __init__(self):
-        self.parser = CharacterParser()
-        self.bg_dl = BackgroundDownloader()
-        self.detector = StoryDetector()
+        self.parser = LarvaParser()
+        self.detector = Detector()
     
-    def add_watermark_top(self, image):
-        """Watermark KECIL di ATAS - Keren & Terbaca"""
-        draw = ImageDraw.Draw(image)
-        
-        # Font kecil
+    def watermark(self, img):
+        d = ImageDraw.Draw(img)
         try:
-            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
-            font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11)
+            fb = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11)
+            fs = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
         except:
-            font_small = ImageFont.load_default()
-            font_bold = font_small
+            fb = fs = ImageFont.load_default()
         
-        # Background semi-transparent kecil di atas
-        draw.rounded_rectangle([8, 8, WIDTH-8, 55], radius=8, fill=(0, 0, 0, 100))
+        d.rounded_rectangle([8,8,WIDTH-8,55], radius=8, fill=(0,0,0,100))
+        t1 = "YT: CeritaMistery"
+        b1 = d.textbbox((0,0), t1, font=fb)
+        d.text(((WIDTH-(b1[2]-b1[0]))//2+1, 12), t1, fill="black", font=fb)
+        d.text(((WIDTH-(b1[2]-b1[0]))//2, 11), t1, fill=(255,255,255,200), font=fb)
         
-        # Garis aksen
-        draw.line([(15, 30), (WIDTH-15, 30)], fill=(255, 200, 50, 100), width=1)
-        
-        # Text watermark
-        text1 = "YT: CeritaMistery"
-        bbox1 = draw.textbbox((0, 0), text1, font=font_bold)
-        x1 = (WIDTH - (bbox1[2]-bbox1[0])) // 2
-        draw.text((x1+1, 12), text1, fill="black", font=font_bold)
-        draw.text((x1, 11), text1, fill=(255, 255, 255, 200), font=font_bold)
-        
-        # Text YADSTORES
-        text2 = "Top Up: yadstores.web.app"
-        bbox2 = draw.textbbox((0, 0), text2, font=font_small)
-        x2 = (WIDTH - (bbox2[2]-bbox2[0])) // 2
-        draw.text((x2+1, 33), text2, fill="black", font=font_small)
-        draw.text((x2, 32), text2, fill=(255, 200, 50, 200), font=font_small)
-        
-        return image
+        t2 = "Top Up: yadstores.web.app"
+        b2 = d.textbbox((0,0), t2, font=fs)
+        d.text(((WIDTH-(b2[2]-b2[0]))//2+1, 33), t2, fill="black", font=fs)
+        d.text(((WIDTH-(b2[2]-b2[0]))//2, 32), t2, fill=(255,200,50,200), font=fs)
+        return img
     
-    def split_parts(self, cerita):
-        words = cerita.split()
-        wpp = int(PART_DURATION * 2.5)
-        if len(words) <= wpp:
-            return [cerita]
-        
+    def bg(self, seed=0):
+        img = Image.new("RGB", (WIDTH, HEIGHT), (30,30,50))
+        d = ImageDraw.Draw(img)
+        for y in range(HEIGHT):
+            f = y/HEIGHT
+            d.line([(0,y),(WIDTH,y)], fill=(int(30*(1-f*0.5)), int(30*(1-f*0.5)), int(50*(1-f*0.5))))
+        d.rectangle([(0,HEIGHT-80),(WIDTH,HEIGHT)], fill=(40,35,25))
+        return img
+    
+    def generate(self, cerita):
         sentences = [s.strip() for s in re.split(r'[.!?]+', cerita) if s.strip()]
-        parts = []
-        current = []
-        cw = 0
-        for s in sentences:
-            sw = len(s.split())
-            if cw + sw > wpp:
-                if current:
-                    parts.append('. '.join(current) + '.')
-                current = [s]
-                cw = sw
-            else:
-                current.append(s)
-                cw += sw
-        if current:
-            parts.append('. '.join(current) + '.')
-        return parts
-    
-    def generate_part(self, cerita_part, part_num):
-        print(f"\n🎬 Part {part_num}")
         
-        tts = gTTS(text=cerita_part, lang="id", slow=False)
-        audio_file = f"temp_part{part_num}.mp3"
-        tts.save(audio_file)
-        audio = AudioFileClip(audio_file)
-        duration = audio.duration
-        
-        sentences = [s.strip() for s in re.split(r'[.!?]+', cerita_part) if s.strip()]
-        
-        scenes = []
-        for s in sentences:
-            scenes.append({
-                'text': s,
-                'action': self.detector.action(s),
-                'char': self.detector.char(s),
-                'bg': self.detector.bg(s),
-                'duration': max(len(s.split()) / 2.5, 2.0)
-            })
-        
-        for scene in scenes:
-            scene['bg_img'] = self.bg_dl.get_bg(scene['bg'])
+        tts = gTTS(text=cerita[:500], lang='id', slow=False)
+        tts.save("audio.mp3")
+        audio = AudioFileClip("audio.mp3")
+        duration = min(audio.duration, PART_DURATION)
         
         total_frames = int(duration * FPS)
-        fps_scene = total_frames // len(scenes) if scenes else total_frames
+        fps_scene = total_frames // len(sentences) if sentences else total_frames
         
         frames = []
-        for frame_num in range(total_frames):
-            scene_idx = min(frame_num // fps_scene, len(scenes) - 1)
-            scene = scenes[scene_idx]
+        for fn in range(total_frames):
+            si = min(fn // fps_scene, len(sentences)-1)
+            s = sentences[si]
             
-            bg = scene['bg_img'].copy()
+            img = self.bg(si)
             
-            if scene['char']:
-                char_frames = self.parser.get_frames(scene['char'], scene['action'])
-                if char_frames:
-                    char_idx = (frame_num // 4) % len(char_frames)
-                    sprite_path = char_frames[char_idx]
-                    try:
-                        sprite = Image.open(sprite_path).convert("RGBA")
-                        max_w = int(WIDTH * 0.5)
-                        max_h = int(HEIGHT * 0.35)
-                        ratio = min(max_w / sprite.width, max_h / sprite.height)
-                        nw = int(sprite.width * ratio)
-                        nh = int(sprite.height * ratio)
-                        sprite = sprite.resize((nw, nh), Image.LANCZOS)
-                        x = (WIDTH - nw) // 2
-                        y = HEIGHT - nh - 50
-                        bg.paste(sprite, (x, y), sprite)
-                    except:
-                        pass
+            char = self.detector.char(s)
+            action = self.detector.action(s)
             
-            # WATERMARK ATAS
-            bg = self.add_watermark_top(bg)
+            if char:
+                cf = self.parser.get_frames(char, action)
+                if cf:
+                    # ANIMASI LAMBAT: ganti setiap 4 frame
+                    idx = (fn // 4) % len(cf)
+                    sprite = Image.open(cf[idx]).convert("RGBA")
+                    
+                    mw = int(WIDTH * 0.6)
+                    mh = int(HEIGHT * 0.4)
+                    ratio = min(mw/sprite.width, mh/sprite.height)
+                    nw = int(sprite.width * ratio)
+                    nh = int(sprite.height * ratio)
+                    sprite = sprite.resize((nw, nh), Image.LANCZOS)
+                    
+                    x = (WIDTH - nw) // 2
+                    y = HEIGHT - nh - 60
+                    
+                    img.paste(sprite, (x, y), sprite)
             
-            frames.append(np.array(bg))
-            
-            if frame_num % 100 == 0:
-                print(f"  Frame {frame_num}/{total_frames}")
+            img = self.watermark(img)
+            frames.append(np.array(img))
         
         video = ImageSequenceClip(frames, fps=FPS)
-        video = video.with_audio(audio)
+        video = video.set_audio(audio)
         
         os.makedirs("output", exist_ok=True)
-        output = f"output/part_{part_num}.mp4"
-        video.write_videofile(output, fps=FPS, codec="libx264", audio_codec="aac", bitrate="800k", preset="ultrafast")
+        video.write_videofile("output/larva_animated.mp4", fps=FPS, codec="libx264", audio_codec="aac", bitrate="800k", verbose=False)
         video.close()
-        audio.close()
         
-        print(f"✅ Part {part_num} done!")
-        return output
-    
-    def generate_all(self, cerita):
-        parts = self.split_parts(cerita)
-        print(f"\n📝 {len(parts)} parts")
-        results = []
-        for i, part in enumerate(parts):
-            results.append(self.generate_part(part, i+1))
-        return results
+        return "output/larva_animated.mp4"
 
-if __name__ == "__main__":
-    gen = VideoGenerator()
-    
-    cerita = None
-    if os.path.exists("cerita/cerita.txt"):
-        with open("cerita/cerita.txt", "r") as f:
-            cerita = f.read()
-    if not cerita:
-        cerita = "Black Knight berjalan di hutan gelap. Vampire muncul dan menyerang."
-    
-    results = gen.generate_all(cerita)
-    print(f"\n✅ {len(results)} video!")
+gen = Generator()
+result = gen.generate("
+RITUAL KEGELAPAN - Cerita Horor
+
+---
+
+PART 1 - Rumah Tua di Ujung Jalan
+
+Malam itu hujan deras mengguyur kota. Sarah terpaksa berteduh di sebuah rumah tua di ujung jalan yang sudah lama ditinggalkan. Pintu kayu yang lapuk terbuka dengan sendirinya, mengeluarkan bau busuk yang menusuk hidung.
+
+Di dalam, lilin-lilin menyala tanpa api. Bayangan-bayangan bergerak di dinding meski tidak ada orang. Dari lantai dua, terdengar suara langkah kaki mendekat perlahan.
+
+"Kau seharusnya tidak datang ke sini," bisik sebuah suara dari balik pintu.
+
+Sarah berbalik, dan di hadapannya berdiri sesosok wanita berpakaian putih dengan wajah yang membusuk. Matanya hitam pekat menatap kosong. Wanita itu tersenyum, memperlihatkan gigi-gigi yang menghitam.
+
+"Bergabunglah dengan kami," katanya sambil mengulurkan tangan yang tinggal tulang.
+
+Sarah menjerit dan berlari, tetapi setiap pintu yang ia buka membawanya kembali ke ruangan yang sama. Dinding-dinding mulai mengeluarkan darah hitam pekat.
+
+Tiba-tiba, lantai di bawahnya runtuh. Sarah jatuh ke ruang bawah tanah yang gelap. Di sana, puluhan mayat bergelantungan dengan mata terbuka. Mereka semua menatap ke arah Sarah.
+
+"Sekarang giliranmu," suara itu berbisik tepat di telinganya.
+
+---
+
+PART 2 - Ruang Bawah Tanah
+
+Sarah terbangun di ruangan gelap yang lembab. Tangan dan kakinya terikat di meja batu. Di sekelilingnya, lilin-lilin merah menyala membentuk lingkaran. Simbol-simbol aneh digambar dengan darah di lantai.
+
+Seorang pria tua berpakaian jubah hitam berdiri di dekatnya sambil memegang belati perak. Wajahnya penuh bekas luka, dan matanya bersinar merah seperti bara api.
+
+"Jangan melawan, anakku. Ini akan cepat," bisiknya sambil mengasah belati.
+
+Sarah berjuang melepaskan ikatan. Tali yang mengikatnya terbuat dari rambut manusia, dan semakin ia meronta, semakin kencang tali itu menjerat.
+
+Di sudut ruangan, sesosok makhluk tinggi dengan kulit abu-abu mulai merangkak mendekat. Jari-jarinya yang panjang menggores lantai batu, mengeluarkan suara yang membuat bulu kuduk berdiri.
+
+"Pembunuh itu datang," kata pria tua itu sambil tersenyum. "Ia lapar akan jiwa-jiwa yang suci."
+
+Makhluk itu melompat ke arah Sarah dengan rahang terbuka lebar. Gigi-giginya yang tajam berkilat dalam cahaya lilin.
+
+Sarah menendang meja batu dengan sekuat tenaga. Meja itu terbalik, menimpa pria tua itu. Belatinya terlepas dan meluncur ke arah Sarah.
+
+Dengan cepat, Sarah meraih belati itu dan memotong talinya. Makhluk abu-abu itu menyerang lagi, tetapi Sarah menusuk matanya dengan belati.
+
+Jeritan mengerikan mengguncang ruangan. Darah hitam muncrat ke mana-mana.
+
+---
+
+PART 3 - Pelarian dari Kegelapan
+
+Sarah berlari menyusuri koridor gelap. Di belakangnya, langkah-langkah berat mengejar. Makhluk itu tidak mati, hanya terluka. Ia kini semakin marah dan haus darah.
+
+Dinding-dinding koridor mulai menutup, mempersempit jalan. Tangan-tangan mayat muncul dari balik batu, mencengkeram kaki Sarah.
+
+"Tidak ada jalan keluar," suara itu bergema. "Kau akan mati di sini bersama kami."
+
+Sarah terus berlari, meskipun paru-parunya terbakar. Di ujung koridor, ia melihat sebuah pintu kayu dengan ukiran pentagram.
+
+Ia mendobrak pintu itu dan masuk ke sebuah ruangan besar. Di tengah ruangan, terdapat altar dengan mayat seorang gadis yang masih segar. Darahnya menetes ke lantai, membentuk kolam merah.
+
+"Persembahan berikutnya adalah kau," wanita berpakaian putih itu muncul dari bayangan.
+
+Sarah mengangkat belatinya. "Aku tidak akan mati di sini!" teriaknya.
+
+Wanita itu tertawa. "Semua orang bilang begitu, sayangku. Tapi lihat mereka sekarang."
+
+Ia menunjuk ke arah dinding. Ratusan wajah terpahat di batu, semuanya berteriak dalam kesakitan abadi.
+
+Sarah menyerang dengan belatinya, tetapi wanita itu menghilang dalam asap hitam.
+
+---
+
+PART 4 - Pertarungan di Altar
+
+Dari kegelapan, makhluk abu-abu itu muncul kembali. Matanya yang terluka mengeluarkan cairan hitam, dan tubuhnya kini berubah semakin mengerikan. Tulang-tulangnya mencuat dari kulit, membentuk duri-duri tajam.
+
+Sarah bersiap menghadapi makhluk itu. Belati perak di tangannya bersinar samar dalam kegelapan.
+
+Makhluk itu menyerang dengan cakar raksasanya. Sarah melompat ke samping, menghindari serangan yang menggores lantai batu seperti pisau memotong mentega.
+
+"Belati itu tidak akan bisa membunuhku!" raung makhluk itu.
+
+Sarah menyerang balik, menusuk kaki makhluk itu. Makhluk itu menjerit kesakitan dan menghantamkan ekornya ke dinding, membuat batu-batu berjatuhan.
+
+Di saat yang sama, pria tua berjubah hitam itu muncul dari balik altar. Wajahnya berdarah, dan belati lain di tangannya.
+
+"Kau membunuhku sekali, tapi aku bangkit lagi!" katanya sambil menyerang.
+
+Sarah menghindari serangannya, lalu menendang pria itu ke arah makhluk abu-abu. Kedua makhluk jahat itu bertabrakan.
+
+Memanfaatkan kekacauan, Sarah menusuk punggung pria tua itu. Darah menyembur keluar, dan pria itu jatuh ke lantai dengan jeritan mengerikan.
+
+Makhluk abu-abu itu meraung marah dan menyerang Sarah dengan kekuatan penuh.
+
+---
+
+PART 5 - Pembunuhan Pria Tua
+
+Pria tua itu masih hidup, merangkak di lantai dengan darah mengalir dari luka di punggungnya. Sarah tahu ia harus menghabisinya sebelum pria itu bangkit lagi.
+
+"Kau pikir kau bisa membunuhku?" pria itu tertawa getir. "Aku sudah mati seratus tahun yang lalu!"
+
+Sarah berdiri di atasnya. "Kalau begitu, kau tidak akan keberatan mati sekali lagi."
+
+Ia mengangkat belati tinggi-tinggi, lalu menikamkannya tepat ke jantung pria tua itu. Pria itu menjerit, tubuhnya menggeliat seperti cacing yang dipotong.
+
+Darah hitam menyembur dari lukanya, mengenai wajah Sarah. Namun ia tidak berhenti. Ia mencabut belatinya dan menikamkan lagi, lagi, dan lagi.
+
+Setiap tusukan membuat pria itu semakin melemah. Kulitnya mulai mengelupas, memperlihatkan daging yang membusuk di bawahnya.
+
+"Ini... belum... berakhir..." bisik pria itu dengan napas terakhirnya.
+
+Tubuhnya hancur menjadi debu hitam, tertiup angin entah dari mana.
+
+---
+
+PART 6 - Makhluk Kegelapan
+
+Makhluk abu-abu itu meraung melihat kematian tuannya. Kemarahannya berubah menjadi kekuatan yang mengerikan. Tubuhnya membesar, otot-ototnya menonjol, dan matanya menyala merah.
+
+"KAU MEMBUNUH TUANKU!" raungnya, suaranya menggetarkan seluruh ruangan.
+
+Sarah menggenggam belatinya erat-erat. Tangannya gemetar, tapi matanya penuh tekad.
+
+"Aku juga akan membunuhmu!" teriaknya menantang.
+
+Makhluk itu menyerang dengan kecepatan kilat. Cakarnya menggores lengan Sarah, membuat darah mengalir. Sarah menjerit kesakitan, tapi tidak mundur.
+
+Ia melompat ke atas altar, lalu melompat lagi ke punggung makhluk itu. Belatinya ia tancapkan ke leher makhluk itu.
+
+Makhluk itu mengamuk, mencoba melepaskan Sarah dari punggungnya. Ia menghantamkan tubuhnya ke dinding, ke lantai, ke mana-mana.
+
+Sarah bertahan, terus menusuk leher makhluk itu berulang kali. Darah hitam muncrat ke wajahnya, tapi ia tidak peduli.
+
+"MATI KAU, MONSTER!" teriaknya.
+
+---
+
+PART 7 - Luka di Kegelapan
+
+Sarah terpental dan jatuh ke lantai. Lengannya berdarah, tulang rusuknya mungkin retak. Makhluk itu masih hidup, meskipun lehernya penuh luka.
+
+"Kau... tidak bisa... membunuhku..." makhluk itu terengah-engah.
+
+Sarah mencoba bangkit, tapi kakinya gemetar. Rasa sakit menjalar ke seluruh tubuhnya.
+
+"Aku sudah sejauh ini," bisiknya pada dirinya sendiri. "Aku tidak bisa menyerah sekarang."
+
+Ia melihat belatinya tergeletak beberapa meter darinya. Ia merangkak, mengabaikan rasa sakit yang menusuk.
+
+Makhluk itu juga bergerak mendekat, menyeret tubuhnya yang terluka. Keduanya berlomba menuju belati.
+
+Sarah meraih belatinya lebih dulu. Dengan sisa tenaga, ia menusuk mata makhluk itu yang satunya lagi.
+
+Makhluk itu menjerit dan menghantamkan cakarnya ke dada Sarah. Sarah terpental jauh, menghantam dinding batu.
+
+Gelap mulai menyelimuti pandangannya. Darah mengalir dari luka di dadanya.
+
+"Apakah ini akhir?" pikirnya.
+
+Tapi kemudian, ia mendengar suara. Suara yang memberinya harapan.
+
+---
+
+PART 8 - Kebangkitan Terakhir
+
+Di tengah kegelapan, Sarah melihat cahaya. Cahaya itu berasal dari belatinya yang kini menyala terang. Belati perak itu menyerap darah makhluk kegelapan dan berubah menjadi senjata suci.
+
+"Belati itu... adalah satu-satunya yang bisa membunuhku..." suara wanita berpakaian putih itu muncul kembali.
+
+Sarah memandang belatinya yang bersinar. Ia merasakan kekuatan baru mengalir di tubuhnya. Luka-lukanya mulai menutup, rasa sakitnya hilang.
+
+"Aku mengerti sekarang," kata Sarah. "Ini bukan belati biasa."
+
+Wanita putih itu tersenyum tipis. "Itu adalah belati yang sama yang membunuhku seratus tahun lalu. Dan sekarang, kau harus menggunakannya untuk mengakhiri semuanya."
+
+Sarah bangkit. Tubuhnya kini penuh kekuatan. Belati di tangannya menyala seperti obor di tengah kegelapan.
+
+Makhluk abu-abu itu meraung ketakutan melihat cahaya itu. Ia mencoba mundur, tapi Sarah sudah siap.
+
+"Sekarang, monster," kata Sarah, "giliranmu untuk merasakan sakit."
+
+---
+
+PART 9 - Pertarungan Final
+
+Sarah menyerang dengan kecepatan yang tidak pernah ia bayangkan. Belati suci itu memotong daging makhluk itu seperti mentega panas.
+
+Makhluk abu-abu itu meraung, mencoba menyerang balik dengan cakarnya. Tapi setiap kali cakarnya mendekat, belati Sarah memotongnya.
+
+"TIDAK MUNGKIN!" raung makhluk itu. "AKU TIDAK BISA DIBUNUH!"
+
+"Semua makhluk bisa dibunuh," jawab Sarah sambil menusuk perut makhluk itu.
+
+Makhluk itu terhuyung. Darah hitam mengalir deras dari lukanya. Ia jatuh berlutut di hadapan Sarah.
+
+"Aku... akan kembali..." bisiknya.
+
+"Tidak, kau tidak akan," kata Sarah.
+
+Ia mengangkat belatinya tinggi-tinggi, lalu menikamkannya tepat ke jantung makhluk itu. Makhluk itu menjerit satu kali, lalu tubuhnya hancur menjadi abu.
+
+Keheningan menyelimuti ruangan. Pertarungan telah berakhir.
+
+---
+
+PART 10 - Kemenangan dan Kedamaian
+
+Sarah berdiri di tengah ruangan, terengah-engah. Di sekelilingnya, sisa-sisa abu makhluk kegelapan beterbangan.
+
+Wanita berpakaian putih itu muncul sekali lagi. Wajahnya yang membusuk kini berubah menjadi wajah seorang gadis cantik.
+
+"Terima kasih," katanya lembut. "Kau telah membebaskanku dari kutukan."
+
+"Siapa kau sebenarnya?" tanya Sarah.
+
+"Aku adalah korban pertama ritual ini. Seratus tahun yang lalu, mereka mengorbankanku untuk membangkitkan kegelapan. Jiwaku terperangkap, dipaksa menjadi pelayan kegelapan."
+
+"Sekarang kau bebas," kata Sarah.
+
+"Ya, berkat kau." Wanita itu tersenyum. "Pergilah, sebelum tempat ini runtuh. Kau telah menyelesaikan apa yang seharusnya kuselesaikan dulu."
+
+Sarah berjalan keluar dari rumah tua itu. Saat matahari terbit, rumah itu runtuh di belakangnya, terkubur selamanya.
+
+"Aku selamat," bisik Sarah. "Aku benar-benar selamat."
+
+Ia memandang belati di tangannya yang kini tidak lagi bersinar. Belati itu sekarang hanyalah belati biasa, tetapi akan selalu mengingatkannya pada malam itu.
+
+Sarah berjalan menjauh dari reruntuhan, meninggalkan kegelapan di belakangnya.
+
+---
+
+TAMAT")
+print(f"✅ {result}")
